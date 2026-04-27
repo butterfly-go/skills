@@ -1,59 +1,31 @@
 ---
 name: butterfly-core
-description: Use when working in the butterfly-go/core repository or when building or debugging services that depend on butterfly.orx.me/core. This skill covers the app bootstrap flow, configuration loading, storage and observability initialization, and the public package layout so changes match the framework's existing patterns.
+description: Use when building or debugging a Go service that uses butterfly.orx.me/core. This skill covers service bootstrap with app.Config, framework-managed configuration and observability, store client wiring, and the common integration patterns a service repository should follow.
 ---
 
 # Butterfly Core
 
 ## Overview
 
-`butterfly.orx.me/core` is a Go microservice framework. Most work falls into one of two paths:
+`butterfly.orx.me/core` is a service framework for Go microservices. Use this skill when a service repository needs help with:
 
-- framework changes inside this repository
-- service bootstrapping and integration changes in code that imports this repository
+- bootstrapping an HTTP or gRPC service with `app.Config`
+- structuring service-specific config alongside Butterfly core config
+- reading Redis, Mongo, SQL, or S3 clients from the framework
+- understanding what the framework initializes automatically before app code runs
 
-Start by locating the request in the package map under `references/package-map.md`, then follow the rules below before editing.
+If the task is about changing the framework itself, inspect the core repository separately. This skill is for service consumers first.
 
-## Working Rules
+## Service Bootstrap
 
-- Treat `app.Config` in `app/app.go` as the public entrypoint. New framework behavior should usually hang off `app.Config`, the init chain, or a public package under `store/`, `config/`, `log/`, or `observe/`.
-- Preserve the startup order in `(*App).Run()`. Core initialization currently runs as: config source, app config decode, core config decode, logging, metrics, tracing, storage, then user `InitFunc`.
-- Keep public packages thin. The repository exposes wrappers like `config`, `log`, and `store/*` while most implementation lives under `internal/`.
-- Assume configuration is YAML loaded by service key or namespace/service key. New config fields should be added to `mod.CoreConfig` or the service config struct passed through `app.Config.Config`.
-- Follow the existing framework split: shared runtime state under `internal/runtime`, configuration providers under `internal/config`, stores under `internal/store`, and user-facing helpers under top-level packages.
-
-## Common Tasks
-
-### Add or change startup behavior
-
-1. Inspect `app/app.go` and decide whether the behavior belongs in the core init chain, HTTP server setup, gRPC server setup, or user-supplied hooks.
-2. If the feature is framework-owned and must run for every service, add it through the init chain or built-in server setup.
-3. If services should opt in, expose it via `app.Config` instead of hard-coding it.
-4. Update or add tests around the changed package. Prefer package-level tests near the affected code.
-
-### Change configuration behavior
-
-1. Check whether the value is framework-level or app-specific.
-2. Framework-level settings belong in `mod.CoreConfig` and `internal/config`.
-3. App-specific settings should remain in the consumer's `app.Config.Config` struct and be decoded in `InitAppConfig()`.
-4. Keep environment-variable assumptions aligned with `doc.md` and the current `internal/arg` usage.
-
-### Change storage or observability integrations
-
-1. Update internal initialization first.
-2. Keep public accessors in `store/*` or `observe/*` minimal and stable.
-3. Make sure startup still succeeds when a subsystem is not configured, if that is the existing behavior for that subsystem.
-4. Verify telemetry middleware or client instrumentation still attaches to the service name from `internal/runtime`.
-
-## Service Integration Pattern
-
-When creating an example or validating consumer code, use this shape:
+Start from `app.Config` and let the framework own process startup:
 
 ```go
 cfg := &app.Config{
     Service: "user-service",
-    Config:  &MyConfig{},
-    Router:  registerHTTPRoutes,
+    Namespace: "prod",
+    Config: &MyConfig{},
+    Router: registerHTTPRoutes,
     GRPCRegister: registerGRPC,
     InitFunc: []func() error{
         initDomainDeps,
@@ -63,19 +35,76 @@ cfg := &app.Config{
 app.New(cfg).Run()
 ```
 
-Important constraints:
+Rules to preserve:
 
-- `Service` is effectively required because it drives runtime service name and default config key.
-- `Namespace` changes the config lookup key to `namespace/service`.
-- `Config` must be a pointer compatible with YAML unmarshal and satisfy the framework's `Print()` contract if the consumer uses it.
-- HTTP uses Gin with recovery, discarded default access logs, and OpenTelemetry middleware added by the framework.
+- `Service` is required in practice because it sets the runtime service name and the default config lookup key.
+- `Namespace` changes the lookup key from `service` to `namespace/service`.
+- `Config` should be a pointer to the service's YAML-backed config struct.
+- `Router` is optional. When present, Butterfly creates a Gin engine, installs recovery, disables default Gin access logs, and adds OpenTelemetry middleware.
+- `GRPCRegister` is optional. When present, Butterfly starts a gRPC server on port `9090`.
+- `InitFunc` is where service-owned dependency wiring belongs after framework config, logging, telemetry, and store setup complete.
+
+## Initialization Order
+
+Butterfly runs a fixed startup sequence before your service logic:
+
+1. Select config source
+2. Load service config into `app.Config.Config`
+3. Load core framework config
+4. Initialize logging
+5. Initialize metrics
+6. Initialize tracing
+7. Initialize stores
+8. Run service `InitFunc`
+
+Use that order when debugging startup failures. If a dependency needs config values or framework-owned clients, initialize it in `InitFunc`, not before `app.New(...).Run()`.
+
+## Configuration Model
+
+Two configuration layers are loaded from the same YAML source:
+
+- service config: your custom struct passed through `app.Config.Config`
+- core config: Butterfly-managed `store`, `log`, and `otel` sections
+
+Keep that split clean:
+
+- Put business settings like API keys, feature flags, and retry limits in the service config struct.
+- Put Redis, Mongo, database, S3, log, and telemetry settings in the framework-owned YAML sections.
+- Keep examples and generated config aligned with the environment variables documented by Butterfly, especially `BUTTERFLY_CONFIG_TYPE`, `BUTTERFLY_CONFIG_FILE_PATH`, and Consul settings.
+
+## Common Tasks
+
+### Add a new service endpoint
+
+1. Register HTTP routes in `Router` or gRPC services in `GRPCRegister`.
+2. Put business logic in your service packages, not in the bootstrap file.
+3. Let Butterfly keep ownership of server startup, middleware, and tracing wiring.
+
+### Add a service dependency
+
+1. Add service-specific config fields to your custom config struct.
+2. Read framework-managed clients from the public packages under `store/` when the backing config already lives in Butterfly core config.
+3. Build higher-level repositories or clients inside `InitFunc`.
+
+### Debug startup or config issues
+
+1. Verify the service name and optional namespace first because they control the config key.
+2. Check whether the failure is in service config decode or framework config decode.
+3. Confirm the expected YAML shape under `store`, `log`, and `otel`.
+4. Check environment variables before changing application code.
+
+## Store and Observability Usage
+
+- Use public packages such as `store/redis`, `store/mongo`, `store/gorm`, `store/sqldb`, and `store/s3` from service code instead of reaching into framework internals.
+- Assume the framework has already initialized logging and telemetry before `InitFunc`.
+- Treat `log`, `config`, and `observe` packages as service-facing helpers, not extension points for framework rewrites.
 
 ## Validation
 
-- Run targeted Go tests for touched packages first, then broader `go test ./...` if the change is wide enough.
-- Re-read `doc.md` when altering config names, startup sequence, or public usage examples so the skill and docs stay aligned.
-- If behavior changes a public package, confirm the top-level package still presents a small API and does not leak `internal` details.
+- For service repository changes, run the service's tests and any startup smoke checks that exercise config loading and dependency initialization.
+- When adding or changing Butterfly usage, verify the service still boots with realistic env vars or config fixtures.
+- Re-read `references/package-map.md` when you need a quick map of the consumer-facing packages.
 
 ## References
 
-- Package map and edit guidance: `references/package-map.md`
+- Consumer package map and usage notes: `references/package-map.md`

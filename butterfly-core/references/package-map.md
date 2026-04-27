@@ -1,38 +1,47 @@
-# Butterfly Core Package Map
+# Butterfly Core Consumer Map
 
-Use this reference when a task needs package-specific context without loading the whole repository into the main skill.
+Use this reference when working in a service repository that imports `butterfly.orx.me/core`.
 
-## Public Entry Points
+## Service-Facing Packages
 
-- `app`: Main service bootstrap API. `app.Config` wires service identity, config loading, optional HTTP routes, optional gRPC registration, and user init/teardown hooks.
-- `config`: Thin public wrapper around the active config provider.
-- `log`: Public logging bootstrap and logger helpers built on `log/slog`.
-- `mod`: Framework-owned configuration structs such as `CoreConfig`, store config, and log config.
-- `store/gorm`, `store/mongo`, `store/redis`, `store/s3`, `store/sqldb`: Public store access packages backed by `internal/store`.
-- `observe/otel`: Public observability helpers.
+- `app`: Primary bootstrap package. `app.Config` controls service name, config decoding, HTTP route registration, gRPC registration, and post-framework initialization hooks.
+- `config`: Read raw configuration content through the active framework provider when the service needs it explicitly.
+- `log`: Logging bootstrap and logger helpers based on `log/slog`.
+- `mod`: Framework-owned config structs for core sections such as `store`, `log`, and `otel`.
+- `store/redis`, `store/mongo`, `store/gorm`, `store/sqldb`, `store/s3`: Access framework-managed clients from service code.
+- `observe/otel`: Observability helpers exposed for service usage.
 - `utils/httputils`: Shared transport helpers.
 
-## Internal Packages
+## What Butterfly Initializes For You
 
-- `internal/arg`: Reads framework environment variables and normalizes argument names like `config.type`.
-- `internal/config`: Selects the config backend, loads framework config, and initializes logging from config.
-- `internal/log`: Internal logger naming helpers used during framework startup.
-- `internal/observe/metric`: Metrics initialization.
-- `internal/observe/tracing`: OpenTelemetry initialization.
-- `internal/runtime`: Global service name and config-key state used across subsystems.
-- `internal/store`: Shared store initialization and client registries.
+- Config provider selection from environment variables
+- Service config decode into your custom config struct
+- Core config decode into framework config
+- Logging
+- Metrics
+- Tracing
+- Store clients
 
-## Behavioral Notes
+Your service-specific dependency graph should be layered on top of that work in `InitFunc`.
 
-- `(*app.App).Run()` is the canonical startup path. Changes to initialization order should be deliberate and tested.
-- Framework config is loaded twice from the same config source: once into the app-specific config struct, then into `mod.CoreConfig`.
-- Gin HTTP middleware is installed by the framework, including recovery and OpenTelemetry instrumentation.
-- gRPC startup is optional and currently listens on port `9090`.
-- Public packages are intentionally shallow; prefer putting implementation detail in `internal/*` unless consumers must call it directly.
+## Configuration Shape
 
-## Typical Edit Targets
+Expect the config source to contain both service-specific fields and Butterfly core sections:
 
-- New bootstrap option: `app/app.go` plus tests in `app/`.
-- Config backend or config schema change: `internal/config/`, `mod/config.go`, and docs in `doc.md`.
-- Store integration: matching files in `internal/store/` and public accessors under `store/`.
-- Logging or telemetry: `log/`, `internal/log/`, `internal/observe/metric/`, or `internal/observe/tracing/`.
+- service-owned fields for business logic
+- `store` for Redis, Mongo, DB, and S3
+- `log` for level and format
+- `otel` for tracing-related config
+
+The framework reads config by service key or `namespace/service`.
+
+## Debugging Checklist
+
+- Wrong config loaded: check `Service`, `Namespace`, and the resolved config key first.
+- Store client missing: check the corresponding `store.*` YAML section before changing service code.
+- Startup panic before app logic: inspect config source, logging, telemetry, and store initialization order.
+- HTTP behavior mismatch: remember Butterfly owns Gin recovery, disables default Gin access logs, and injects OpenTelemetry middleware.
+
+## When Not to Use This Skill
+
+If the task is about modifying Butterfly internals such as `internal/config`, startup order, or store implementation details inside the framework repository, inspect `butterfly-go/core` directly instead of relying on this consumer-oriented skill.
