@@ -1,0 +1,4 @@
+interface:
+  display_name: "Butterfly Core"
+  short_description: "Guide for butterfly-go/core framework tasks"
+  default_prompt: "Use $butterfly-core to implement or review changes in butterfly-go/core."
