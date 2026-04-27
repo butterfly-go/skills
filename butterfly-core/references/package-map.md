@@ -8,7 +8,8 @@ Use this reference when working in a service repository that imports `butterfly.
 - `config`: Read raw configuration content through the active framework provider when the service needs it explicitly.
 - `log`: Logging bootstrap and logger helpers based on `log/slog`.
 - `mod`: Framework-owned config structs for core sections such as `store`, `log`, and `otel`.
-- `store/redis`, `store/mongo`, `store/gorm`, `store/sqldb`, `store/s3`: Access framework-managed clients from service code.
+- `store/redis`, `store/mongo`, `store/sqldb`, and `store/s3`: Access framework-managed clients from service code.
+- `store/gorm`: Use `NewDB` when service code needs to build a GORM handle from a DSN. Do not rely on `GetDB` for initialized framework-managed state.
 - `observe/otel`: Observability helpers exposed for service usage.
 - `utils/httputils`: Shared transport helpers.
 
@@ -38,6 +39,7 @@ The framework reads config by service key or `namespace/service`.
 ## Debugging Checklist
 
 - Wrong config loaded: check `Service`, `Namespace`, and the resolved config key first.
+- Config struct does not compile: make sure the service config type implements Butterfly's `Print()` method.
 - Store client missing: check the corresponding `store.*` YAML section before changing service code.
 - Startup panic before app logic: inspect config source, logging, telemetry, and store initialization order.
 - HTTP behavior mismatch: remember Butterfly owns Gin recovery, disables default Gin access logs, and injects OpenTelemetry middleware.

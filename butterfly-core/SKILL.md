@@ -21,6 +21,12 @@ If the task is about changing the framework itself, inspect the core repository 
 Start from `app.Config` and let the framework own process startup:
 
 ```go
+type MyConfig struct {
+    APIKey string `yaml:"api_key"`
+}
+
+func (c *MyConfig) Print() {}
+
 cfg := &app.Config{
     Service: "user-service",
     Namespace: "prod",
@@ -39,7 +45,7 @@ Rules to preserve:
 
 - `Service` is required in practice because it sets the runtime service name and the default config lookup key.
 - `Namespace` changes the lookup key from `service` to `namespace/service`.
-- `Config` should be a pointer to the service's YAML-backed config struct.
+- `Config` must be a pointer to the service config struct and that type must satisfy Butterfly's `config.AppConfig` contract by implementing `Print()`.
 - `Router` is optional. When present, Butterfly creates a Gin engine, installs recovery, disables default Gin access logs, and adds OpenTelemetry middleware.
 - `GRPCRegister` is optional. When present, Butterfly starts a gRPC server on port `9090`.
 - `InitFunc` is where service-owned dependency wiring belongs after framework config, logging, telemetry, and store setup complete.
@@ -82,9 +88,10 @@ Keep that split clean:
 
 ### Add a service dependency
 
-1. Add service-specific config fields to your custom config struct.
+1. Add service-specific config fields to your custom config struct and keep the struct implementing `Print()`.
 2. Read framework-managed clients from the public packages under `store/` when the backing config already lives in Butterfly core config.
-3. Build higher-level repositories or clients inside `InitFunc`.
+3. Prefer `store/sqldb.GetDB` for initialized SQL handles. Treat `store/gorm.NewDB` as a constructor for ad hoc GORM setup, not as a getter for framework-managed runtime state.
+4. Build higher-level repositories or clients inside `InitFunc`.
 
 ### Debug startup or config issues
 
@@ -95,7 +102,8 @@ Keep that split clean:
 
 ## Store and Observability Usage
 
-- Use public packages such as `store/redis`, `store/mongo`, `store/gorm`, `store/sqldb`, and `store/s3` from service code instead of reaching into framework internals.
+- Use public packages such as `store/redis`, `store/mongo`, `store/sqldb`, and `store/s3` from service code instead of reaching into framework internals.
+- Use `store/gorm.NewDB` only when you need to build a new GORM handle from a DSN in service code; do not assume `store/gorm.GetDB` returns an initialized framework-managed connection.
 - Assume the framework has already initialized logging and telemetry before `InitFunc`.
 - Treat `log`, `config`, and `observe` packages as service-facing helpers, not extension points for framework rewrites.
 

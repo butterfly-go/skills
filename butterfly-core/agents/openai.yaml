@@ -1,4 +1,4 @@
 interface:
   display_name: "Butterfly Core"
-  short_description: "Guide for butterfly-go/core framework tasks"
-  default_prompt: "Use $butterfly-core to implement or review changes in butterfly-go/core."
+  short_description: "Guide for services using Butterfly Core"
+  default_prompt: "Use $butterfly-core to wire or debug a service that depends on butterfly.orx.me/core."
