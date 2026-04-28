@@ -1,0 +1,4 @@
+interface:
+  display_name: "Butterfly Core"
+  short_description: "Guide for services using Butterfly Core"
+  default_prompt: "Use $butterfly-core to wire or debug a service that depends on butterfly.orx.me/core."
